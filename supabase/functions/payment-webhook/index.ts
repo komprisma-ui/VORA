@@ -78,6 +78,9 @@ Deno.serve(async (req) => {
     if (orderError || !order) {
       return Response.json({ ok: false, error: "order not found" }, { status: 404 });
     }
+    if (Math.abs(Number(order.total) - amount) > 0.01) {
+      return Response.json({ ok: false, error: "payment amount mismatch" }, { status: 409 });
+    }
 
     const { data: eventId, error: eventError } = await db.rpc("vora_record_payment_webhook", {
       p_business_id: order.business_id,
