@@ -1,6 +1,6 @@
 -- VORA 2.6 business intelligence engine
 
-create or replace function public.vora_business_intelligence(p_business_id uuid)
+create or replace function public.vora_business_intelligence(p_biz_id uuid)
 returns jsonb
 language plpgsql
 security definer
@@ -8,11 +8,11 @@ set search_path=''
 as $$
 declare result jsonb;
 begin
- if not public.vora_is_admin(p_business_id) then raise exception 'not authorized'; end if;
+ if not public.vora_is_admin(p_biz_id) then raise exception 'not authorized'; end if;
 
  with
  orders as (
-   select * from public.vora_orders where business_id=p_business_id
+   select * from public.vora_orders where business_id=p_biz_id
  ),
  completed as (
    select * from orders where status='completed'
@@ -23,8 +23,8 @@ begin
      coalesce(sum(case when o.status='completed' then oi.line_total else 0 end),0) revenue
    from public.vora_products p
    left join public.vora_order_items oi on oi.product_id=p.id
-   left join public.vora_orders o on o.id=oi.order_id and o.business_id=p_business_id
-   where p.business_id=p_business_id
+   left join public.vora_orders o on o.id=oi.order_id and o.business_id=p_biz_id
+   where p.business_id=p_biz_id
    group by p.id,p.sku,p.name
  ),
  partners as (
@@ -33,21 +33,21 @@ begin
      coalesce(sum(o.total) filter(where o.status='completed'),0) sales,
      coalesce(sum(cl.amount) filter(where cl.entry_type='credit' and cl.status='posted'),0) commissions
    from public.vora_members m
-   left join public.vora_orders o on o.seller_member_id=m.id and o.business_id=p_business_id
-   left join public.vora_commission_ledger cl on cl.member_id=m.id and cl.business_id=p_business_id
-   where m.business_id=p_business_id
+   left join public.vora_orders o on o.seller_member_id=m.id and o.business_id=p_biz_id
+   left join public.vora_commission_ledger cl on cl.member_id=m.id and cl.business_id=p_biz_id
+   where m.business_id=p_biz_id
    group by m.id,m.member_code,m.full_name,m.rank_code
  ),
  wallet as (
    select coalesce(sum(available_balance),0) available,
           coalesce(sum(pending_balance),0) pending
-   from public.vora_wallets where business_id=p_business_id
+   from public.vora_wallets where business_id=p_biz_id
  ),
  risk as (
    select
      count(*) filter(where status in('pending','processing')) withdrawals_pending,
      coalesce(sum(amount) filter(where status in('pending','processing')),0) withdrawals_value
-   from public.vora_withdrawals where business_id=p_business_id
+   from public.vora_withdrawals where business_id=p_biz_id
  ),
  customer as (
    select count(distinct customer_user_id) customers,
@@ -80,7 +80,7 @@ begin
      'commerce_health',case when (select count(*) from completed)>0 then 100 else 25 end,
      'customer_retention',case when (select customers from customer)>0 then least(100,round((select repeat_customers::numeric/customers from customer)*100,0)) else 25 end,
      'product_health',case when (select count(*) from products where units>0)>0 then 100 else 25 end,
-     'financial_integrity',case when (select count(*) from public.vora_commission_runs where business_id=p_business_id and status='failed')=0 then 100 else 50 end
+     'financial_integrity',case when (select count(*) from public.vora_commission_runs where business_id=p_biz_id and status='failed')=0 then 100 else 50 end
    )
  ) into result;
  return result;
