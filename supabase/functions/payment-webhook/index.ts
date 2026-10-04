@@ -23,8 +23,10 @@ async function verifyMidtrans(body: Record<string, unknown>) {
   if (!midtransServerKey) return false;
   const input = String(body.order_id ?? "") + String(body.status_code ?? "") +
     String(body.gross_amount ?? "") + midtransServerKey;
-  const expected = await sha512(input);
-  return safeEqual(expected, String(body.signature_key ?? ""));
+  return safeEqual(
+    await sha512(input),
+    String(body.signature_key ?? "")
+  );
 }
 
 function mapStatus(status: string) {
@@ -45,17 +47,26 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json() as Record<string, unknown>;
-    const verified = await verifyMidtrans(body);
-    if (!verified) return Response.json({ ok: false, error: "invalid signature" }, { status: 401 });
+    if (!await verifyMidtrans(body)) {
+      return Response.json({ ok: false, error: "invalid signature" }, { status: 401 });
+    }
+
+    const status = String(body.transaction_status ?? "");
+    const fraudStatus = String(body.fraud_status ?? "").toLowerCase();
+    if (status === "capture" && fraudStatus !== "accept") {
+      return Response.json({ ok: true, pending_fraud_review: true });
+    }
+    if (String(body.currency ?? "IDR") !== "IDR") {
+      return Response.json({ ok: false, error: "unsupported currency" }, { status: 400 });
+    }
 
     const orderNo = String(body.order_id ?? "");
     const providerEventId = String(body.transaction_id ?? (
-      orderNo + ":" + String(body.transaction_status ?? "") + ":" + String(body.status_code ?? "")
+      orderNo + ":" + status + ":" + String(body.status_code ?? "")
     ));
-    const eventType = String(body.transaction_status ?? "unknown");
     const amount = Number(body.gross_amount);
-    const mapped = mapStatus(eventType);
-    if (!orderNo || !Number.isFinite(amount) || !mapped) {
+    const mapped = mapStatus(status);
+    if (!orderNo || !Number.isFinite(amount) || amount <= 0 || !mapped) {
       return Response.json({ ok: false, error: "unsupported notification" }, { status: 400 });
     }
 
@@ -64,13 +75,15 @@ Deno.serve(async (req) => {
       .select("id,business_id,total")
       .eq("order_no", orderNo)
       .maybeSingle();
-    if (orderError || !order) return Response.json({ ok: false, error: "order not found" }, { status: 404 });
+    if (orderError || !order) {
+      return Response.json({ ok: false, error: "order not found" }, { status: 404 });
+    }
 
     const { data: eventId, error: eventError } = await db.rpc("vora_record_payment_webhook", {
       p_business_id: order.business_id,
       p_provider: "midtrans",
       p_provider_event_id: providerEventId,
-      p_event_type: eventType,
+      p_event_type: status,
       p_signature_verified: true,
       p_payload: body,
     });
