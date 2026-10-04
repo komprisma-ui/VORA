@@ -25,7 +25,7 @@ declare
   o record;
   pid uuid;
 begin
-  if not public.vora_is_admin(p_business_id) then
+  if coalesce(auth.role(),'') <> 'service_role' and not public.vora_is_admin(p_business_id) then
     raise exception 'payment processing requires privileged backend/admin';
   end if;
 
@@ -146,7 +146,7 @@ declare
 begin
   select * into o from public.vora_orders where id=p_order_id for update;
   if not found then raise exception 'order not found'; end if;
-  if not public.vora_is_admin(o.business_id) then raise exception 'settlement requires privileged backend/admin'; end if;
+  if coalesce(auth.role(),'') <> 'service_role' and not public.vora_is_admin(o.business_id) then raise exception 'settlement requires privileged backend/admin'; end if;
 
   if o.status in('completed','refunded','cancelled') then
     return jsonb_build_object('order_id',o.id,'status',o.status,'idempotent',true);
