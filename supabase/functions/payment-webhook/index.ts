@@ -30,18 +30,13 @@ async function verifyMidtrans(body: Record<string, unknown>) {
 function mapStatus(status: string) {
   switch (status) {
     case "settlement":
-    case "capture":
-      return "paid";
-    case "pending":
-      return "pending";
-    case "expire":
-      return "expired";
+    case "capture": return "paid";
+    case "pending": return "pending";
+    case "expire": return "expired";
     case "deny":
     case "cancel":
-    case "failure":
-      return "failed";
-    default:
-      return null;
+    case "failure": return "failed";
+    default: return null;
   }
 }
 
@@ -50,12 +45,13 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json() as Record<string, unknown>;
-    const provider = "midtrans";
     const verified = await verifyMidtrans(body);
     if (!verified) return Response.json({ ok: false, error: "invalid signature" }, { status: 401 });
 
     const orderNo = String(body.order_id ?? "");
-    const providerEventId = String(body.transaction_id ?? \${orderNo} + ":" + String(body.transaction_status ?? "") + ":" + String(body.status_code ?? ""));
+    const providerEventId = String(body.transaction_id ?? (
+      orderNo + ":" + String(body.transaction_status ?? "") + ":" + String(body.status_code ?? "")
+    ));
     const eventType = String(body.transaction_status ?? "unknown");
     const amount = Number(body.gross_amount);
     const mapped = mapStatus(eventType);
@@ -72,7 +68,7 @@ Deno.serve(async (req) => {
 
     const { data: eventId, error: eventError } = await db.rpc("vora_record_payment_webhook", {
       p_business_id: order.business_id,
-      p_provider: provider,
+      p_provider: "midtrans",
       p_provider_event_id: providerEventId,
       p_event_type: eventType,
       p_signature_verified: true,
@@ -83,11 +79,11 @@ Deno.serve(async (req) => {
     const { data: paymentId, error: paymentError } = await db.rpc("vora_record_payment", {
       p_business_id: order.business_id,
       p_order_id: order.id,
-      p_provider: provider,
+      p_provider: "midtrans",
       p_amount: amount,
       p_status: mapped,
       p_provider_reference: String(body.transaction_id ?? ""),
-      p_idempotency_key: \${"webhook:"} + provider + ":" + providerEventId,
+      p_idempotency_key: "webhook:midtrans:" + providerEventId,
     });
     if (paymentError) throw paymentError;
 
