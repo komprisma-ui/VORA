@@ -85,7 +85,7 @@ declare
   o record; i record; q record; r record;
   v_pv numeric:=0; v_cv numeric:=0; v_qualified numeric:=0;
   v_total_commission numeric:=0; v_commission numeric;
-  v_level integer; v_source text; v_ancestor uuid;
+  v_level integer; v_source text; v_ancestor uuid; v_visited uuid[]:=array[]::uuid[];
   v_wallet_id uuid; v_balance numeric;
 begin
   select * into o from public.vora_orders where id=p_order_id for update;
@@ -182,6 +182,11 @@ begin
   v_level:=1;
 
   while v_ancestor is not null and v_level<=50 loop
+    if v_ancestor = any(v_visited) then
+      raise exception 'sponsor cycle detected';
+    end if;
+    v_visited:=array_append(v_visited,v_ancestor);
+
     select sponsor_member_id into v_ancestor
     from public.vora_members
     where id=v_ancestor and business_id=o.business_id;
