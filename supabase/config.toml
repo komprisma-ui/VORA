@@ -1,0 +1,7 @@
+# VORA Supabase function configuration
+# Payment providers cannot attach Supabase Auth JWTs to webhooks.
+[functions.payment-webhook]
+verify_jwt = false
+
+[functions.refund-webhook]
+verify_jwt = false
