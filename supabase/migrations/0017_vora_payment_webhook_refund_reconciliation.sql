@@ -119,16 +119,16 @@ begin
   select coalesce(sum(amount),0) into v_total_refunded
   from public.vora_refunds
   where order_id=o.id and status='completed' and id<>f.id;
-  if v_total_refunded+f.amount>o.total then raise exception 'refund exceeds captured order amount'; end if;
-
   select * into pt from public.vora_payment_transactions
     where order_id=o.id and status in('paid','partially_refunded')
     order by created_at desc limit 1 for update;
   if not found then raise exception 'captured payment not found'; end if;
+  if v_total_refunded+f.amount>pt.amount then raise exception 'refund exceeds captured payment amount'; end if;
+  if pt.amount<=0 then raise exception 'captured payment amount is invalid'; end if;
   v_payment_id:=pt.id;
 
   -- Reverse only the commission that was actually posted for this order.
-  v_ratio:=least(1,f.amount/nullif(o.total,0));
+  v_ratio:=least(1,f.amount/nullif(pt.amount,0));
   for cl in
     select * from public.vora_commission_ledger
     where business_id=o.business_id and order_id=o.id
@@ -193,7 +193,7 @@ begin
         processed_at=now()
     where id=f.id;
 
-  if v_total_refunded+f.amount>=o.total then
+  if v_total_refunded+f.amount>=pt.amount then
     update public.vora_orders set status='refunded' where id=o.id;
   end if;
 
